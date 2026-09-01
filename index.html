@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Single-File Forum</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px auto; max-width: 700px; background: #f4f4f9; color: #333; }
+        .card { background: #fff; padding: 15px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1, h2, h3 { margin-top: 0; }
+        input[type="text"], input[type="password"], textarea { width: 100%; padding: 8px; margin: 5px 0 10px; box-sizing: border-box; }
+        button { background: #007bff; color: #fff; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .author { font-size: 0.85em; color: #666; margin-top: 5px; }
+        .comment { background: #f9f9f9; padding: 8px; border-radius: 4px; margin-top: 8px; font-size: 0.9em; }
+        .alert { background: #ffdddd; color: #a00; padding: 10px; border-radius: 4px; margin-bottom: 15px; display: none; }
+        .hidden { display: none; }
+        .inline-btn { background: #6c757d; font-size: 0.85em; }
+    </style>
+</head>
+<body>
+
+    <h1>Single-File Forum</h1>
+    <div id="alertBox" class="alert"></div>
+
+    <!-- Auth Section -->
+    <div class="card">
+        <div id="loggedOutView">
+            <h2>Login or Register</h2>
+            <input type="text" id="authUsername" placeholder="Username">
+            <input type="password" id="authPassword" placeholder="Password">
+            <button onclick="login()">Log In</button>
+            <button onclick="register()" style="background: #28a745;">Register</button>
+        </div>
+        <div id="loggedInView" class="hidden">
+            <p>Welcome, <strong id="currentUsernameDisplay"></strong>!</p>
+            <button onclick="logout()">Log Out</button>
+        </div>
+    </div>
+
+    <!-- Create Post Section -->
+    <div id="createPostCard" class="card hidden">
+        <h2>Create a Post</h2>
+        <input type="text" id="postTitle" placeholder="Post Title">
+        <textarea id="postContent" rows="4" placeholder="Write something..."></textarea>
+        <button onclick="createPost()">Publish Post</button>
+    </div>
+
+    <!-- Feed Section -->
+    <h2>Forum Feed</h2>
+    <div id="postsFeed"></div>
+
+    <script>
+        // Data Store (localStorage initialization)
+        let users = JSON.parse(localStorage.getItem('forum_users')) || [];
+        let posts = JSON.parse(localStorage.getItem('forum_posts')) || [];
+        let currentUser = JSON.parse(localStorage.getItem('forum_current_user')) || null;
+
+        function showAlert(msg) {
+            const alertBox = document.getElementById('alertBox');
+            alertBox.innerText = msg;
+            alertBox.style.display = 'block';
+            setTimeout(() => { alertBox.style.display = 'none'; }, 3000);
+        }
+
+        function saveData() {
+            localStorage.setItem('forum_users', JSON.stringify(users));
+            localStorage.setItem('forum_posts', JSON.stringify(posts));
+            localStorage.setItem('forum_current_user', JSON.stringify(currentUser));
+        }
+
+        // Authentication Functions
+        function register() {
+            const username = document.getElementById('authUsername').value.trim();
+            const password = document.getElementById('authPassword').value.trim();
+            if (!username || !password) return showAlert('Please fill out all fields.');
+            if (users.find(u => u.username === username)) return showAlert('Username already exists.');
+
+            users.push({ username, password });
+            saveData();
+            showAlert('Account created! You can now log in.');
+            document.getElementById('authUsername').value = '';
+            document.getElementById('authPassword').value = '';
+        }
+
+        function login() {
+            const username = document.getElementById('authUsername').value.trim();
+            const password = document.getElementById('authPassword').value.trim();
+            const user = users.find(u => u.username === username && u.password === password);
+
+            if (!user) return showAlert('Invalid username or password.');
+
+            currentUser = user;
+            saveData();
+            updateUI();
+        }
+
+        function logout() {
+            currentUser = null;
+            saveData();
+            updateUI();
+        }
+
+        // Forum Actions
+        function createPost() {
+            const title = document.getElementById('postTitle').value.trim();
+            const content = document.getElementById('postContent').value.trim();
+            if (!title || !content) return showAlert('Title and content are required.');
+
+            const newPost = {
+                id: Date.now(),
+                title,
+                content,
+                author: currentUser.username,
+                likes: 0,
+                comments: []
+            };
+
+            posts.unshift(newPost);
+            saveData();
+            document.getElementById('postTitle').value = '';
+            document.getElementById('postContent').value = '';
+            renderPosts();
+        }
+
+        function likePost(postId) {
+            const post = posts.find(p => p.id === postId);
+            if (post) {
+                post.likes += 1;
+                saveData();
+                renderPosts();
+            }
+        }
+
+        function addComment(postId) {
+            if (!currentUser) return showAlert('You must be logged in to comment.');
+            const input = document.getElementById(`commentInput-${postId}`);
+            const text = input.value.trim();
+            if (!text) return;
+
+            const post = posts.find(p => p.id === postId);
+            if (post) {
+                post.comments.push({ author: currentUser.username, text });
+                saveData();
+                renderPosts();
+            }
+        }
+
+        // UI Render Functions
+        function updateUI() {
+            const loggedOutView = document.getElementById('loggedOutView');
+            const loggedInView = document.getElementById('loggedInView');
+            const createPostCard = document.getElementById('createPostCard');
+
+            if (currentUser) {
+                loggedOutView.classList.add('hidden');
+                loggedInView.classList.remove('hidden');
+                createPostCard.classList.remove('hidden');
+                document.getElementById('currentUsernameDisplay').innerText = currentUser.username;
+            } else {
+                loggedOutView.classList.remove('hidden');
+                loggedInView.classList.add('hidden');
+                createPostCard.classList.add('hidden');
+            }
+            renderPosts();
+        }
+
+        function renderPosts() {
+            const feed = document.getElementById('postsFeed');
+            feed.innerHTML = '';
+
+            if (posts.length === 0) {
+                feed.innerHTML = '<p>No posts yet. Be the first to publish one!</p>';
+                return;
+            }
+
+            posts.forEach(post => {
+                const postEl = document.createElement('div');
+                postEl.className = 'card';
+
+                let commentsHtml = post.comments.map(c => 
+                    `<div class="comment"><strong>${escapeHtml(c.author)}:</strong> ${escapeHtml(c.text)}</div>`
+                ).join('');
+
+                const commentForm = currentUser ? `
+                    <div style="margin-top: 10px;">
+                        <input type="text" id="commentInput-${post.id}" placeholder="Write a comment...">
+                        <button onclick="addComment(${post.id})" style="padding: 5px 10px;">Comment</button>
+                    </div>
+                ` : '';
+
+                postEl.innerHTML = `
+                    <h3>${escapeHtml(post.title)}</h3>
+                    <p>${escapeHtml(post.content).replace(/\n/g, '<br>')}</p>
+                    <div class="author">Posted by <strong>${escapeHtml(post.author)}</strong></div>
+                    <br>
+                    <button class="inline-btn" onclick="likePost(${post.id})">❤️ ${post.likes} Likes</button>
+                    <hr style="border: 0; border-top: 1px solid #eee; margin: 15px 0;">
+                    <h4>Comments</h4>
+                    ${commentsHtml || '<p style="font-size: 0.85em; color: #888;">No comments yet.</p>'}
+                    ${commentForm}
+                `;
+                feed.appendChild(postEl);
+            });
+        }
+
+        function escapeHtml(str) {
+            return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        }
+
+        // Initialize App
+        updateUI();
+    </script>
+</body>
+</html>
