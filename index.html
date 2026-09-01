@@ -3,213 +3,180 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Single-File Forum</title>
+    <title>Global Community Forum</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px auto; max-width: 700px; background: #f4f4f9; color: #333; }
-        .card { background: #fff; padding: 15px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        :root { --primary: #4f46e5; --bg: #f3f4f6; --card: #ffffff; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 20px; background: var(--bg); color: #1f2937; }
+        .container { max-width: 750px; margin: 0 auto; }
+        .card { background: var(--card); padding: 20px; border-radius: 10px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
         h1, h2, h3 { margin-top: 0; }
-        input[type="text"], input[type="password"], textarea { width: 100%; padding: 8px; margin: 5px 0 10px; box-sizing: border-box; }
-        button { background: #007bff; color: #fff; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; }
-        button:hover { background: #0056b3; }
-        .author { font-size: 0.85em; color: #666; margin-top: 5px; }
-        .comment { background: #f9f9f9; padding: 8px; border-radius: 4px; margin-top: 8px; font-size: 0.9em; }
-        .alert { background: #ffdddd; color: #a00; padding: 10px; border-radius: 4px; margin-bottom: 15px; display: none; }
+        input, textarea { width: 100%; padding: 10px; margin: 6px 0 12px; border: 1px solid #d1d5db; border-radius: 6px; box-sizing: border-box; }
+        button { background: var(--primary); color: white; border: none; padding: 10px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; }
+        button:hover { opacity: 0.9; }
+        .author { font-size: 0.85em; color: #6b7280; }
+        .comment { background: #f9fafb; padding: 10px; border-radius: 6px; margin-top: 8px; border-left: 3px solid var(--primary); }
         .hidden { display: none; }
-        .inline-btn { background: #6c757d; font-size: 0.85em; }
+        .badge { background: #e0e7ff; color: var(--primary); padding: 2px 8px; border-radius: 12px; font-size: 0.8em; }
     </style>
 </head>
 <body>
 
-    <h1>Single-File Forum</h1>
-    <div id="alertBox" class="alert"></div>
+<div class="container">
+    <h1>Global Forum</h1>
 
-    <!-- Auth Section -->
+    <!-- Auth View -->
     <div class="card">
-        <div id="loggedOutView">
-            <h2>Login or Register</h2>
-            <input type="text" id="authUsername" placeholder="Username">
-            <input type="password" id="authPassword" placeholder="Password">
-            <button onclick="login()">Log In</button>
-            <button onclick="register()" style="background: #28a745;">Register</button>
+        <div id="authForms">
+            <h2>Sign In / Register</h2>
+            <input type="email" id="email" placeholder="Email Address">
+            <input type="password" id="password" placeholder="Password">
+            <button onclick="handleAuth('signUp')">Register</button>
+            <button onclick="handleAuth('signIn')" style="background: #10b981;">Log In</button>
         </div>
-        <div id="loggedInView" class="hidden">
-            <p>Welcome, <strong id="currentUsernameDisplay"></strong>!</p>
-            <button onclick="logout()">Log Out</button>
+        <div id="userInfo" class="hidden">
+            <p>Signed in as <strong id="userEmail"></strong> <span class="badge">Online</span></p>
+            <button onclick="signOut()" style="background: #ef4444;">Log Out</button>
         </div>
     </div>
 
-    <!-- Create Post Section -->
-    <div id="createPostCard" class="card hidden">
+    <!-- Create Post -->
+    <div id="postFormCard" class="card hidden">
         <h2>Create a Post</h2>
-        <input type="text" id="postTitle" placeholder="Post Title">
-        <textarea id="postContent" rows="4" placeholder="Write something..."></textarea>
+        <input type="text" id="postTitle" placeholder="Title">
+        <textarea id="postContent" rows="3" placeholder="What's on your mind?"></textarea>
         <button onclick="createPost()">Publish Post</button>
     </div>
 
-    <!-- Feed Section -->
-    <h2>Forum Feed</h2>
-    <div id="postsFeed"></div>
+    <!-- Live Feed -->
+    <h2>Recent Discussions</h2>
+    <div id="postsFeed">Loading posts...</div>
+</div>
 
-    <script>
-        // Data Store (localStorage initialization)
-        let users = JSON.parse(localStorage.getItem('forum_users')) || [];
-        let posts = JSON.parse(localStorage.getItem('forum_posts')) || [];
-        let currentUser = JSON.parse(localStorage.getItem('forum_current_user')) || null;
+<script>
+    // Replace with your Supabase details
+    const SUPABASE_URL = 'https://guhkpwmxndkrrdpsqkks.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_LLe0i2kWHEGKjNwQr5QsgQ_P5GbannA';
+    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-        function showAlert(msg) {
-            const alertBox = document.getElementById('alertBox');
-            alertBox.innerText = msg;
-            alertBox.style.display = 'block';
-            setTimeout(() => { alertBox.style.display = 'none'; }, 3000);
+    let currentUser = null;
+
+    async function init() {
+        const { data: { session } } = await supabase.auth.getSession();
+        updateUserSession(session?.user || null);
+
+        supabase.auth.onAuthStateChange((_event, session) => {
+            updateUserSession(session?.user || null);
+        });
+
+        fetchPosts();
+    }
+
+    function updateUserSession(user) {
+        currentUser = user;
+        if (user) {
+            document.getElementById('authForms').classList.add('hidden');
+            document.getElementById('userInfo').classList.remove('hidden');
+            document.getElementById('postFormCard').classList.remove('hidden');
+            document.getElementById('userEmail').innerText = user.email;
+        } else {
+            document.getElementById('authForms').classList.remove('hidden');
+            document.getElementById('userInfo').classList.add('hidden');
+            document.getElementById('postFormCard').classList.add('hidden');
         }
+    }
 
-        function saveData() {
-            localStorage.setItem('forum_users', JSON.stringify(users));
-            localStorage.setItem('forum_posts', JSON.stringify(posts));
-            localStorage.setItem('forum_current_user', JSON.stringify(currentUser));
-        }
+    async function handleAuth(type) {
+        const email = document.getElementById('email').value;
+        const password = document.getElementById('password').value;
+        const { error } = type === 'signUp' 
+            ? await supabase.auth.signUp({ email, password })
+            : await supabase.auth.signInWithPassword({ email, password });
 
-        // Authentication Functions
-        function register() {
-            const username = document.getElementById('authUsername').value.trim();
-            const password = document.getElementById('authPassword').value.trim();
-            if (!username || !password) return showAlert('Please fill out all fields.');
-            if (users.find(u => u.username === username)) return showAlert('Username already exists.');
+        if (error) alert(error.message);
+        else if (type === 'signUp') alert('Check your email for confirmation!');
+    }
 
-            users.push({ username, password });
-            saveData();
-            showAlert('Account created! You can now log in.');
-            document.getElementById('authUsername').value = '';
-            document.getElementById('authPassword').value = '';
-        }
+    async function signOut() {
+        await supabase.auth.signOut();
+    }
 
-        function login() {
-            const username = document.getElementById('authUsername').value.trim();
-            const password = document.getElementById('authPassword').value.trim();
-            const user = users.find(u => u.username === username && u.password === password);
+    async function createPost() {
+        const title = document.getElementById('postTitle').value;
+        const content = document.getElementById('postContent').value;
+        if (!title || !content) return alert('Please complete all fields');
 
-            if (!user) return showAlert('Invalid username or password.');
+        const { error } = await supabase.from('posts').insert([{
+            title,
+            content,
+            author_name: currentUser.email.split('@')[0],
+            user_id: currentUser.id
+        }]);
 
-            currentUser = user;
-            saveData();
-            updateUI();
-        }
-
-        function logout() {
-            currentUser = null;
-            saveData();
-            updateUI();
-        }
-
-        // Forum Actions
-        function createPost() {
-            const title = document.getElementById('postTitle').value.trim();
-            const content = document.getElementById('postContent').value.trim();
-            if (!title || !content) return showAlert('Title and content are required.');
-
-            const newPost = {
-                id: Date.now(),
-                title,
-                content,
-                author: currentUser.username,
-                likes: 0,
-                comments: []
-            };
-
-            posts.unshift(newPost);
-            saveData();
+        if (error) alert(error.message);
+        else {
             document.getElementById('postTitle').value = '';
             document.getElementById('postContent').value = '';
-            renderPosts();
+            fetchPosts();
         }
+    }
 
-        function likePost(postId) {
-            const post = posts.find(p => p.id === postId);
-            if (post) {
-                post.likes += 1;
-                saveData();
-                renderPosts();
-            }
-        }
+    async function fetchPosts() {
+        const { data: posts, error } = await supabase
+            .from('posts')
+            .select('*, comments(*)')
+            .order('created_at', { ascending: false });
 
-        function addComment(postId) {
-            if (!currentUser) return showAlert('You must be logged in to comment.');
-            const input = document.getElementById(`commentInput-${postId}`);
-            const text = input.value.trim();
-            if (!text) return;
+        if (error) return console.error(error);
 
-            const post = posts.find(p => p.id === postId);
-            if (post) {
-                post.comments.push({ author: currentUser.username, text });
-                saveData();
-                renderPosts();
-            }
-        }
-
-        // UI Render Functions
-        function updateUI() {
-            const loggedOutView = document.getElementById('loggedOutView');
-            const loggedInView = document.getElementById('loggedInView');
-            const createPostCard = document.getElementById('createPostCard');
-
-            if (currentUser) {
-                loggedOutView.classList.add('hidden');
-                loggedInView.classList.remove('hidden');
-                createPostCard.classList.remove('hidden');
-                document.getElementById('currentUsernameDisplay').innerText = currentUser.username;
-            } else {
-                loggedOutView.classList.remove('hidden');
-                loggedInView.classList.add('hidden');
-                createPostCard.classList.add('hidden');
-            }
-            renderPosts();
-        }
-
-        function renderPosts() {
-            const feed = document.getElementById('postsFeed');
-            feed.innerHTML = '';
-
-            if (posts.length === 0) {
-                feed.innerHTML = '<p>No posts yet. Be the first to publish one!</p>';
-                return;
-            }
-
-            posts.forEach(post => {
-                const postEl = document.createElement('div');
-                postEl.className = 'card';
-
-                let commentsHtml = post.comments.map(c => 
-                    `<div class="comment"><strong>${escapeHtml(c.author)}:</strong> ${escapeHtml(c.text)}</div>`
-                ).join('');
-
-                const commentForm = currentUser ? `
-                    <div style="margin-top: 10px;">
-                        <input type="text" id="commentInput-${post.id}" placeholder="Write a comment...">
-                        <button onclick="addComment(${post.id})" style="padding: 5px 10px;">Comment</button>
+        const feed = document.getElementById('postsFeed');
+        feed.innerHTML = posts.map(post => `
+            <div class="card">
+                <h3>${escapeHtml(post.title)}</h3>
+                <p>${escapeHtml(post.content)}</p>
+                <div class="author">By <strong>${escapeHtml(post.author_name)}</strong> • ${new Date(post.created_at).toLocaleDateString()}</div>
+                <br>
+                <button onclick="likePost(${post.id}, ${post.likes})" style="background:#6b7280;">❤️ ${post.likes} Likes</button>
+                <hr style="border:0; border-top:1px solid #e5e7eb; margin:15px 0;">
+                <h4>Comments</h4>
+                <div>
+                    ${post.comments.map(c => `
+                        <div class="comment"><strong>${escapeHtml(c.author_name)}:</strong> ${escapeHtml(c.content)}</div>
+                    `).join('') || '<p class="author">No comments yet.</p>'}
+                </div>
+                ${currentUser ? `
+                    <div style="margin-top:10px;">
+                        <input type="text" id="comment-${post.id}" placeholder="Write a comment...">
+                        <button onclick="addComment(${post.id})">Comment</button>
                     </div>
-                ` : '';
+                ` : ''}
+            </div>
+        `).join('');
+    }
 
-                postEl.innerHTML = `
-                    <h3>${escapeHtml(post.title)}</h3>
-                    <p>${escapeHtml(post.content).replace(/\n/g, '<br>')}</p>
-                    <div class="author">Posted by <strong>${escapeHtml(post.author)}</strong></div>
-                    <br>
-                    <button class="inline-btn" onclick="likePost(${post.id})">❤️ ${post.likes} Likes</button>
-                    <hr style="border: 0; border-top: 1px solid #eee; margin: 15px 0;">
-                    <h4>Comments</h4>
-                    ${commentsHtml || '<p style="font-size: 0.85em; color: #888;">No comments yet.</p>'}
-                    ${commentForm}
-                `;
-                feed.appendChild(postEl);
-            });
-        }
+    async function likePost(id, currentLikes) {
+        await supabase.from('posts').update({ likes: currentLikes + 1 }).eq('id', id);
+        fetchPosts();
+    }
 
-        function escapeHtml(str) {
-            return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-        }
+    async function addComment(postId) {
+        const input = document.getElementById(`comment-${postId}`);
+        if (!input.value) return;
 
-        // Initialize App
-        updateUI();
-    </script>
+        await supabase.from('comments').insert([{
+            post_id: postId,
+            content: input.value,
+            author_name: currentUser.email.split('@')[0]
+        }]);
+        
+        fetchPosts();
+    }
+
+    function escapeHtml(str) {
+        return str.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+    }
+
+    init();
+</script>
 </body>
 </html>
